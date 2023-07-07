@@ -4,13 +4,18 @@ from torchtext.data.metrics import bleu_score
 import sys
 
 
+def get_tf_ratio(epoch):
+    if epoch <= 5:
+        return 1.0
+    elif 5 < epoch <= 15:
+        return 0.8
+    else:
+        return 0.5
+
+
 def translate_sentence(model, sentence, german, english, device, max_length=50):
-    # print(sentence)
-
-    # sys.exit()
-
     # Load german tokenizer
-    spacy_ger = spacy.load("de")
+    spacy_ger = spacy.load("de_core_news_sm")
 
     # Create tokens using spacy and everything in lower case (which is what our vocab is)
     if type(sentence) == str:
@@ -18,39 +23,39 @@ def translate_sentence(model, sentence, german, english, device, max_length=50):
     else:
         tokens = [token.lower() for token in sentence]
 
-    # print(tokens)
-
-    # sys.exit()
     # Add <SOS> and <EOS> in beginning and end respectively
-    tokens.insert(0, german.init_token)
-    tokens.append(german.eos_token)
+    tokens.insert(0, '<sos>')
+    tokens.append("<eos>")
 
     # Go through each german token and convert to an index
-    text_to_indices = [german.vocab.stoi[token] for token in tokens]
+    text_to_indices = [german[token] for token in tokens]
 
     # Convert to Tensor
     sentence_tensor = torch.LongTensor(text_to_indices).unsqueeze(1).to(device)
+    sentence_tensor = sentence_tensor.permute(1, 0)
 
     # Build encoder hidden, cell state
     with torch.no_grad():
         hidden, cell = model.encoder(sentence_tensor)
 
-    outputs = [english.vocab.stoi["<sos>"]]
+    outputs = [english["<sos>"]]
 
     for _ in range(max_length):
         previous_word = torch.LongTensor([outputs[-1]]).to(device)
+        previous_word = previous_word.unsqueeze(1)
 
         with torch.no_grad():
             output, hidden, cell = model.decoder(previous_word, hidden, cell)
+            output = output.unsqueeze(0)
             best_guess = output.argmax(1).item()
 
         outputs.append(best_guess)
 
         # Model predicts it's the end of the sentence
-        if output.argmax(1).item() == english.vocab.stoi["<eos>"]:
+        if output.argmax(1).item() == english["<eos>"]:
             break
 
-    translated_sentence = [english.vocab.itos[idx] for idx in outputs]
+    translated_sentence = [english.lookup_token(idx) for idx in outputs]
 
     # remove start token
     return translated_sentence[1:]
